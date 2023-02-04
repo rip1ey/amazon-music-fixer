@@ -3,6 +3,7 @@ use std::path::Path;
 use text_colorizer::*;
 use clap::Parser;
 use walkdir::WalkDir;
+use regex::Regex;
 
 #[derive(Parser, Debug)]
 #[command(name = "Amazon Music Fixer")]
@@ -64,6 +65,7 @@ fn rename_in_place(path: &str) {
 }
 
 fn rename_and_copy_files(src_path: &str, dst_path: &str) {
+    let my_regex = compile_regex();
     let source_path = Path::new(src_path);
     let dest_path = Path::new(dst_path);
     eprintln!("Destination path at beginning: {}", dst_path);
@@ -142,7 +144,63 @@ fn rename_and_copy_files(src_path: &str, dst_path: &str) {
         let final_dst_path = dst_components.join(std::path::MAIN_SEPARATOR.encode_utf8(&mut c));
         eprintln!("Final destination path: {}", final_dst_path);
 
-        let final_dst_path = Path::new(final_dst_path.as_str());
+        // remove the uuid from the song name
+        let old_song_ref = match old_song_name.to_str() {
+            Some(s) => s,
+            None => {
+                eprintln!("{}: Failed to get a string reference", "[-]".red());
+                std::process::exit(1);
+            }
+        };
+
+        let mut new_song_name = String::new();
+        if !my_regex.is_match(old_song_ref) {
+            continue;
+        }
+
+        new_song_name = my_regex.replace(old_song_ref, "").to_string();
+        eprintln!("New song name: {}", new_song_name);
+        
+        let final_song_path: [ String; 2 ] = [ final_dst_path, new_song_name ];
+        let full_song_path = final_song_path.join(std::path::MAIN_SEPARATOR.encode_utf8(&mut c));
+
+        let curr_dst_path = Path::new(&final_song_path[0]);
+        if !curr_dst_path.exists() {
+            match fs::create_dir_all(curr_dst_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("{}: Failed to create destination path: {}", "[-]".red(), e);
+                    continue;
+                }
+            }
+        }
+
+        let full_song_path = Path::new(&full_song_path);
+        if full_song_path.exists() {
+            continue;
+        }
+
+        // write the file
+        let res = fs::copy(whole_path, full_song_path);
+        match res {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("{}: Failed to copy file", "[-]".red());
+                continue;
+            },
+        };
     }
     
+}
+
+fn compile_regex() -> Regex {
+    let re = Regex::new(r"_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}");
+
+    match re {
+        Ok(re) => return re,
+        Err(e) => {
+            eprintln!("{}: Failed to compile regex: {}", "[-]".red(), e);
+            std::process::exit(1);
+        }
+    }
 }
