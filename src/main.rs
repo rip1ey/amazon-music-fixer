@@ -190,7 +190,6 @@ fn rename_and_copy_files(src_path: &str, dst_path: &str) {
             },
         };
     }
-    
 }
 
 fn compile_regex() -> Regex {
