@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{ Path, PathBuf };
 use text_colorizer::*;
 use clap::Parser;
 use walkdir::WalkDir;
@@ -54,6 +54,7 @@ fn main() {
 }
 
 fn rename_in_place(path: &str) {
+    let my_regex = compile_regex();
     let source_path = Path::new(path);
 
     if !source_path.exists() {
@@ -62,13 +63,63 @@ fn rename_in_place(path: &str) {
     }
 
     // potentially use PathBuf.set_file_name()
+    for entry in WalkDir::new(source_path) {
+        let entry = match entry {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("{}: Failed to read directory: {}", "[*]".red(), e);
+                std::process::exit(1);
+            }
+        };
+
+        if entry.file_type().is_dir() {
+            continue;
+        }
+
+        let file_name_ref = match entry.file_name().to_str() {
+            Some(s) => s,
+            None => {
+                eprintln!("{}: Failed to get reference for entry's file name", "[*]".red());
+                std::process::exit(1);
+            }
+        };
+
+        if !my_regex.is_match(file_name_ref) {
+            continue;
+        }
+
+        let new_name = my_regex.replace(file_name_ref, "");
+        eprintln!("New name of file: {}", new_name);
+
+        // join the path with the new name
+        let whole_path = match entry.path().to_str() {
+            Some(s) => s,
+            None => {
+                eprintln!("{}: Failed to convert whole path to string reference", "[*]".red());
+                std::process::exit(1);
+            }
+        };
+
+        let mut path_components: Vec<&str> = whole_path.split(std::path::MAIN_SEPARATOR).collect();
+        path_components.pop();
+
+        let new_name = new_name.as_ref();
+        path_components.push(new_name);
+
+        // https://www.reddit.com/r/rust/comments/bv51ul/ascii_char_to_str/
+        let mut c = [0; 1];
+        let final_dst_path = path_components.join(std::path::MAIN_SEPARATOR.encode_utf8(&mut c));
+
+        eprintln!("Final path: {}", final_dst_path);
+        fs::rename(entry.path(), final_dst_path);
+    }
 }
 
 fn rename_and_copy_files(src_path: &str, dst_path: &str) {
     let my_regex = compile_regex();
     let source_path = Path::new(src_path);
     let dest_path = Path::new(dst_path);
-    eprintln!("Destination path at beginning: {}", dst_path);
+
     if !source_path.exists() || !dest_path.exists() {
         eprintln!("{}: Invalid path entered", "[*]".red());
         std::process::exit(1);
@@ -76,7 +127,7 @@ fn rename_and_copy_files(src_path: &str, dst_path: &str) {
 
     let mut str_path = "";
     if dst_path.ends_with(std::path::MAIN_SEPARATOR) {
-        eprintln!("ENDED WITH SLASH");
+        
          str_path = match dst_path.strip_suffix(std::path::MAIN_SEPARATOR) {
             Some(s) => s,
             None => {
@@ -114,7 +165,6 @@ fn rename_and_copy_files(src_path: &str, dst_path: &str) {
         };
 
         let mut path_components: Vec<&str> = whole_path.split(std::path::MAIN_SEPARATOR).collect();
-        // eprintln!("Components: {:?}", path_components);
 
         // pop the file name first and retrieve the album name and artist name
         path_components.pop();
@@ -180,12 +230,11 @@ fn rename_and_copy_files(src_path: &str, dst_path: &str) {
             continue;
         }
 
-        // write the file
         let res = fs::copy(whole_path, full_song_path);
         match res {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("{}: Failed to copy file", "[-]".red());
+                eprintln!("{}: Failed to copy file: {}", "[-]".red(), e);
                 continue;
             },
         };
